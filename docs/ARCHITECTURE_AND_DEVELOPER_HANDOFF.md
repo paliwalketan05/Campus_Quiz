@@ -60,11 +60,11 @@ A rigorous inspection of the current repository at `D:\Quiz` on branch `main` es
 * **Configuration Files**: `.env.example`, `.gitignore`, `requirements.txt`, `README.md`, `ACCOMPLISHMENTS.md`.
 
 ### Implemented Foundation and Remaining Work
-* **Backend Application**: The FastAPI foundation and Phases 2-4 (authentication, tenant-scoped administration, and question/quiz authoring) are implemented and unit-tested. Live database verification remains unverified because no database credentials are configured in this workspace. Session lifecycle, attempts, and results APIs remain unimplemented.
+* **Backend Application**: The FastAPI foundation and Phases 2-5 (authentication, tenant-scoped administration, question/quiz authoring, publishing, and session lifecycle) are implemented and unit-tested. Live database verification remains unverified because no database credentials are configured in this workspace. Student discovery, attempts, and results APIs remain unimplemented.
 * **Frontend Application Code**: There is currently no frontend directory (e.g., Next.js, React, or Vite). The user interfaces for students, faculty, and administrators have not been scaffolded.
 
 > [!IMPORTANT]
-> **To Incoming Developers:** Phases 0-4 are implemented. Continue with **Phase 5: Publishing & Session Lifecycle Engine**.
+> **To Incoming Developers:** Phases 0-5 are implemented. Continue with **Phase 6: Student Quiz Discovery & Lobby**.
 
 ---
 
@@ -868,8 +868,8 @@ Project Roadmap: Master Implementation Sequence
   * Objective: Tenant-scoped CRUD for college metadata, academic years, departments, branches, classes, subjects, faculty/student profiles, assignments, and enrollments. Platform-level college provisioning is deferred until a platform-admin role is defined.
 * **`PHASE 4: Question Bank & Quiz Authoring API`**:
   * Objective: Question creation (MCQ, True/False, Multiple Select), option authoring, quiz assembly, marks override configuration. `[IMPLEMENTED; LIVE DB VERIFICATION PENDING]`
-* **`PHASE 5: Publishing & Session Lifecycle Engine`**:
-  * Objective: Service wrappers for `sp_publish_quiz`, session scheduling, and session controls (`sp_activate/pause/resume/complete`).
+* **`PHASE 5: Publishing & Session Lifecycle Engine` `[IMPLEMENTED; LIVE DB VERIFICATION PENDING]`**:
+  * Objective: `POST /api/v1/quizzes/{quiz_id}/publish`, scheduled session creation/listing, and session controls calling `sp_activate/pause/resume/complete/cancel`. API session responses omit the answer-bearing activation snapshot.
 * **`PHASE 6: Student Quiz Discovery & Lobby`**:
   * Objective: Student dashboard listing active sessions, access code entry, prerequisite eligibility verification.
 * **`PHASE 7: Quiz Attempt Engine & Autosave Dispatcher`**:
@@ -923,7 +923,7 @@ To ensure zero conflicts and clean code reviews:
 
 ## 19. Known Limitations, Incomplete Features & Open Decisions
 
-1. **Domain APIs & Frontend Not Yet Implemented**: The authentication service is implemented, but institutional, quiz, session, attempt, and result APIs and all UI layers remain to be built.
+1. **Remaining APIs & Frontend Not Yet Implemented**: Authentication, institutional administration, quiz authoring, publishing, and session lifecycle APIs are implemented. Student discovery, attempts, autosave, submission, results, analytics, and all UI layers remain to be built.
 2. **WebSocket Real-Time Monitoring `[PROPOSED]`**: Live student attempt monitoring currently relies on REST polling. Implementing a WebSocket or Server-Sent Events (SSE) gateway for live faculty proctoring is scheduled for Phase 9.
 3. **Session Reconnect Grace Period `[OPEN DECISION]`**: Current deadline enforcement is absolute based on `deadline TIMESTAMPTZ`. The team must decide whether a 60-second network disconnection grace period should be introduced during final auto-submission.
 4. **Question Types Expansion `[DEFERRED]`**: Coding questions, file uploads, and essay evaluations are deferred to Phase 13 (Post-MVP).
