@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
+from starlette.requests import Request
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
@@ -46,8 +47,22 @@ class SettingsTests(unittest.TestCase):
             make_settings("postgresql://owner:password@localhost/campusquiz")
 
     def test_missing_bearer_token_is_rejected_before_database_access(self) -> None:
+        request = Request(
+            {
+                "type": "http",
+                "method": "GET",
+                "headers": [],
+                "query_string": b"",
+                "server": ("testserver", 80),
+                "client": ("testclient", 123),
+                "scheme": "http",
+                "path": "/",
+                "raw_path": b"/",
+                "root_path": "",
+            }
+        )
         with self.assertRaises(HTTPException) as raised:
-            asyncio.run(get_access_token_payload(None, make_settings()))
+            asyncio.run(get_access_token_payload(None, request, make_settings()))
         self.assertEqual(raised.exception.status_code, 401)
 
     def test_rejects_pooled_database_endpoint(self) -> None:

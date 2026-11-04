@@ -4,8 +4,19 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
 from fastapi import HTTPException
+from starlette.requests import Request
+from starlette.responses import Response
 from jwt import InvalidTokenError
 
+from app.api.deps import verify_csrf_request
+from app.core.auth_cookies import (
+    ACCESS_COOKIE,
+    CSRF_COOKIE,
+    CSRF_HEADER,
+    REFRESH_COOKIE,
+    clear_auth_cookies,
+    set_auth_cookies,
+)
 from app.core.config import Settings
 from app.core.hmac_tickets import create_actor_ticket
 from app.core.security import (
@@ -15,7 +26,7 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.schemas.auth import LoginRequest
+from app.schemas.auth import AuthSessionResponse, LoginRequest, TokenResponse, UserProfile
 from app.services import auth_service
 from database.auth_utils import generate_auth_signature
 
@@ -70,6 +81,10 @@ class SettingsAndPasswordTests(unittest.TestCase):
             make_settings(auth_hmac_secret="short")
         with self.assertRaisesRegex(ValueError, "must be different"):
             make_settings(auth_hmac_secret="j" * 48)
+        with self.assertRaisesRegex(ValueError, "explicit origins"):
+            make_settings(cors_allowed_origins="*")
+        with self.assertRaisesRegex(ValueError, "SameSite is none"):
+            make_settings(auth_cookie_samesite="none", auth_cookie_secure=False)
 
     def test_argon2_password_hash_round_trip_and_mismatch(self) -> None:
         encoded = hash_password(PASSWORD)
@@ -172,6 +187,102 @@ class TokenTests(unittest.TestCase):
             fixed_epoch=expires_epoch,
         )
         self.assertEqual(ticket, expected)
+
+
+class CookieAuthenticationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.settings = make_settings(auth_cookie_secure=False)
+        self.user = UserProfile(
+            id=USER_ID,
+            college_id=COLLEGE_ID,
+            email="student@example.edu",
+            first_name="Quiz",
+            last_name="Student",
+            roles=["STUDENT"],
+            must_change_password=False,
+        )
+
+    def test_auth_cookies_are_http_only_and_tokens_are_not_in_response(self) -> None:
+        response = Response()
+        auth_response = set_auth_cookies(
+            response,
+            TokenResponse(
+                access_token="access-secret",
+                refresh_token="refresh-secret",
+                expires_in=900,
+                user=self.user,
+            ),
+            self.settings,
+        )
+
+        cookies = response.headers.getlist("set-cookie")
+        access_cookie = next(cookie for cookie in cookies if cookie.startswith(ACCESS_COOKIE))
+        refresh_cookie = next(cookie for cookie in cookies if cookie.startswith(REFRESH_COOKIE))
+        csrf_cookie = next(cookie for cookie in cookies if cookie.startswith(CSRF_COOKIE))
+        self.assertIn("httponly", access_cookie.lower())
+        self.assertIn("httponly", refresh_cookie.lower())
+        self.assertNotIn("httponly", csrf_cookie.lower())
+        self.assertNotIn("access-secret", str(auth_response.model_dump()))
+        self.assertNotIn("refresh-secret", str(auth_response.model_dump()))
+        self.assertEqual(response.headers["cache-control"], "no-store")
+
+    def test_logout_clears_all_cookie_paths(self) -> None:
+        response = Response()
+        clear_auth_cookies(response, self.settings)
+
+        cookies = response.headers.getlist("set-cookie")
+        self.assertEqual(len(cookies), 3)
+        self.assertTrue(any(f"{ACCESS_COOKIE}=" in cookie and "path=/api/v1" in cookie.lower() for cookie in cookies))
+        self.assertTrue(any(f"{REFRESH_COOKIE}=" in cookie and "path=/api/v1/auth" in cookie.lower() for cookie in cookies))
+        self.assertTrue(any(f"{CSRF_COOKIE}=" in cookie and "path=/" in cookie.lower() for cookie in cookies))
+
+    def test_cookie_authenticated_mutation_requires_double_submit_csrf(self) -> None:
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/api/v1/quizzes",
+                "headers": [
+                    (
+                        b"cookie",
+                        f"{ACCESS_COOKIE}=access; {CSRF_COOKIE}=csrf-value".encode(),
+                    )
+                ],
+                "query_string": b"",
+                "server": ("testserver", 80),
+                "client": ("testclient", 50000),
+                "scheme": "http",
+            }
+        )
+        with self.assertRaises(HTTPException) as raised:
+            verify_csrf_request(request)
+        self.assertEqual(raised.exception.status_code, 403)
+
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/api/v1/quizzes",
+                "headers": [
+                    (
+                        b"cookie",
+                        f"{ACCESS_COOKIE}=access; {CSRF_COOKIE}=csrf-value".encode(),
+                    ),
+                    (CSRF_HEADER.lower().encode(), b"csrf-value"),
+                ],
+                "query_string": b"",
+                "server": ("testserver", 80),
+                "client": ("testclient", 50000),
+                "scheme": "http",
+            }
+        )
+        verify_csrf_request(request)
+
+    def test_cookie_login_response_schema_does_not_expose_jwts(self) -> None:
+        properties = AuthSessionResponse.model_json_schema()["properties"]
+        self.assertIn("csrf_token", properties)
+        self.assertNotIn("access_token", properties)
+        self.assertNotIn("refresh_token", properties)
 
 
 class AuthenticationServiceTests(unittest.IsolatedAsyncioTestCase):

@@ -1,9 +1,10 @@
 # CampusQuiz — Technical Architecture & Developer Handoff Documentation
 
-**Document Version:** 1.3.0 (Phase 4 Authoring Baseline)
+**Document Version:** 1.4.0 (Remaining Phases Implementation Handover)
 **Target Audience:** Core Engineering Team, Backend/Frontend Developers, DevOps, and QA Engineers
 **Repository Working Directory:** `D:\Quiz`
 **Primary Git Branch:** `main`
+**Implementation Branch:** `feat/remaining-backend-phases` (not merged)
 **Target Production Database:** Neon Serverless PostgreSQL 18.6 (`campusquiz_db`)
 **Runtime Compatibility:** Python 3.14+ / Node.js 20+ LTS
 **Security Classification:** Institutional Assessment Engine — Strict Integrity & Least Privilege
@@ -14,7 +15,7 @@
 
 To prevent confusion between what has been built versus what is designed for upcoming phases, every architectural component in this document is labeled with one of the following statuses:
 
-* **`[IMPLEMENTED & VERIFIED]`**: Fully authored, tested, verified on live Neon PostgreSQL 18.6, and merged into `main`.
+* **`[IMPLEMENTED & VERIFIED]`**: Authored and tested; the specific verification scope is stated beside the component. Live database validation and merge status are called out separately.
 * **`[PARTIALLY IMPLEMENTED]`**: Supporting database tables/procedures or utilities exist, but backend API or frontend integration is pending.
 * **`[PROPOSED]`**: Formally designed, architected, and specified in this document for upcoming phases; application code has not yet been authored.
 * **`[DEFERRED]`**: Explicitly scoped out of immediate development to avoid over-engineering; scheduled for post-MVP.
@@ -48,23 +49,23 @@ To prevent confusion between what has been built versus what is designed for upc
 
 ## 1. Executive Repository Inspection & Implementation State Audit
 
-A rigorous inspection of the current repository at `D:\Quiz` on branch `main` establishes the exact boundary of what exists today:
+A repository inspection at `D:\Quiz` established the original baseline on `main`; the remaining-phase implementation is being carried on `feat/remaining-backend-phases` and has not been merged:
 
-### What Is Implemented on Disk and Verified Live `[IMPLEMENTED & VERIFIED]`
+### Components Present in the Original Baseline
 * **Database Migrations (`database/01_schema.sql` through `database/06_fix_student_response_record.sql`)**: 6 migration files applied, tracked, and verified on Neon PostgreSQL 18.6.
 * **Master SQL Script (`database/campusquiz_complete.sql`)**: 3,300+ line consolidated script containing the full schema, triggers, and procedures for bootstrapping fresh environments.
 * **Python Database Runner (`database/verify_and_migrate.py`)**: Production-grade migration and verification tool with transactional execution, connection sanitization, and automated permission auditing.
 * **SQL Integration Test Suite (`database/test_suite.sql`)**: 14 test blocks (35 distinct assertions) passing with 100% clean rollback.
-* **Python Migration Unit Test Suite (`database/test_verify_and_migrate.py`)**: 59 automated unit tests passing under `pytest`.
+* **Python Migration Unit Test Suite (`database/test_verify_and_migrate.py`)**: 78 automated unit tests passing under `unittest`.
 * **Backend HMAC Token Utility (`database/auth_utils.py`)**: Cryptographic HMAC-SHA256 actor context ticket generator matching PostgreSQL's `fn_verify_actor_context`.
 * **Configuration Files**: `.env.example`, `.gitignore`, `requirements.txt`, `README.md`, `ACCOMPLISHMENTS.md`.
 
 ### Implemented Foundation and Remaining Work
-* **Backend Application**: The FastAPI foundation and Phases 2-5 (authentication, tenant-scoped administration, question/quiz authoring, publishing, and session lifecycle) are implemented and unit-tested. Live database verification remains unverified because no database credentials are configured in this workspace. Student discovery, attempts, and results APIs remain unimplemented.
-* **Frontend Application Code**: There is currently no frontend directory (e.g., Next.js, React, or Vite). The user interfaces for students, faculty, and administrators have not been scaffolded.
+* **Backend Application**: The FastAPI foundation and Phases 2-9 (authentication, tenant-scoped administration, question/quiz authoring, publishing, sessions, attempts, autosave, finalization, results, and faculty analytics) are implemented and unit-tested. Live database verification remains unverified because no database credentials are configured in this workspace.
+* **Frontend Application Code**: A React/Vite SPA is implemented for student, faculty, and administrator workflows. Production build passes; browser/API integration remains pending.
 
 > [!IMPORTANT]
-> **To Incoming Developers:** Phases 0-5 are implemented. Continue with **Phase 6: Student Quiz Discovery & Lobby**.
+> **To Incoming Developers:** Phases 0-10 are implemented on the feature branch. CI checks and a staging handover guide are present. Complete staging DB verification, browser end-to-end/concurrency testing, backup restore rehearsal, and provider deployment before production use.
 
 ---
 
@@ -89,11 +90,11 @@ CampusQuiz is an institutional assessment platform engineered for continuous cla
 
 ```
 ===================================================================================
-Feature Capability Matrix: Implemented Database Core vs. Planned Application Layer
+Feature Capability Matrix: Implemented Database, API, and Frontend Capabilities
 ===================================================================================
 ```
 
-| Domain | Capability | Database Tier `[IMPLEMENTED]` | Backend API `[PLANNED]` | Frontend UI `[PLANNED]` |
+| Domain | Capability | Database Tier | Backend API | Frontend UI |
 | :--- | :--- | :--- | :--- | :--- |
 | **Identity** | User Login & Role Retrieval | `users`, `roles`, `user_roles` | Login API `[IMPLEMENTED]` | Login Screen |
 | **Identity** | Password Hashing & Token Revocation | `password_hash`, `token_version` | Argon2/JWT Auth API `[IMPLEMENTED]` | Settings / Profile `[PLANNED]` |
@@ -572,56 +573,43 @@ async def call_start_quiz_attempt(
 
 ---
 
-## 10. Frontend Architecture (Interactive Quiz UI) `[PROPOSED]`
+## 10. Frontend Architecture (Interactive Quiz UI) `[IMPLEMENTED; BUILD VERIFIED]`
 
-The frontend will be built as a Single Page Application (SPA) using **Next.js (App Router)** or **React + Vite**, styled with **Tailwind CSS**, and utilizing **Zustand** for state management.
+The frontend is a React/TypeScript single-page application built with Vite,
+React Router, and Tailwind CSS. Its current workflows are in
+[`frontend/src/pages/`](../frontend/src/pages/):
 
-### Recommended Component Architecture
-```
-frontend/
-├── src/
-│   ├── app/ (or routes/)
-│   │   ├── (auth)/login/
-│   │   ├── (student)/
-│   │   │   ├── dashboard/
-│   │   │   ├── quiz/[sessionId]/lobby/
-│   │   │   ├── quiz/[attemptId]/take/       # Live quiz taking view
-│   │   │   └── quiz/[attemptId]/results/    # Results breakdown
-│   │   ├── (faculty)/
-│   │   │   ├── dashboard/
-│   │   │   ├── quizzes/editor/              # Quiz blueprint builder
-│   │   │   └── sessions/[sessionId]/live/   # Session control room
-│   │   └── (admin)/
-│   │       └── institutions/                # Multi-college admin
-│   ├── components/
-│   │   ├── quiz/
-│   │   │   ├── CountdownTimer.tsx           # Syncs with server deadline
-│   │   │   ├── QuestionPalette.tsx          # Answered/unanswered/flagged grid
-│   │   │   ├── QuestionCard.tsx             # MCQ / Multiple Select renderer
-│   │   │   └── AutosaveStatus.tsx           # Synced / Saving / Stale indicator
-│   │   └── ui/                              # Buttons, Modals, Cards
-│   ├── store/
-│   │   ├── authStore.ts                     # JWT & User profile
-│   │   └── quizAttemptStore.ts              # Local answers, optimistic versions
-│   └── lib/
-│       ├── api.ts                           # Axios / Fetch client
-│       └── autosaveQueue.ts                 # Debounced autosave queue (300ms)
-```
+- Authentication and role selection with protected routes.
+- Student session discovery, quiz attempts with debounced autosave, countdown,
+  submission, and released results.
+- Faculty question/quiz authoring, session lifecycle, analytics, and result
+  release.
+- Administrator academic records and account management.
+
+The API client uses credentialed requests and reads only the non-HttpOnly CSRF
+cookie to set `X-CSRF-Token` on unsafe requests. Access and refresh tokens are
+HttpOnly cookies; no JWT is persisted in browser storage. Attempt question
+snapshots are cached in session storage to support reloads, and omit correctness
+data. Production compilation passes; browser-based integration against a live
+backend remains pending.
 
 ---
 
-## 11. REST API Contract & Endpoint Roadmap `[PHASES 1-4 IMPLEMENTED; REMAINDER PROPOSED]`
+## 11. REST API Contract & Endpoint Roadmap `[PHASES 1-9 IMPLEMENTED; LIVE DB VERIFICATION PENDING]`
 
-Protected resource endpoints require a bearer access JWT. Login is unauthenticated; refresh and logout accept a refresh token in their request body.
+Protected endpoints accept the HTTP-only access cookie; bearer access tokens
+remain supported for API clients. Login is unauthenticated. Refresh and logout
+use the HTTP-only refresh cookie. Cookie-authenticated unsafe methods require a
+matching readable CSRF cookie and `X-CSRF-Token` header.
 
 ### 1. Authentication
-* `POST /api/v1/auth/login`: Accepts `college_id`, email, and password; verifies Argon2 hashes and returns short-lived access and longer-lived refresh JWTs.
-* `POST /api/v1/auth/refresh`: Accepts a refresh token and issues a new access token, preserving the refresh token's original expiry.
-* `POST /api/v1/auth/logout`: Accepts a refresh token and increments `users.token_version`, invalidating all outstanding tokens for that user.
-* `GET /api/v1/auth/me`: Validates the bearer access token and returns the current account and role data from the database.
+* `POST /api/v1/auth/login`: Accepts `college_id`, email, and password; verifies Argon2 hashes and sets access/refresh HttpOnly cookies plus a readable CSRF cookie. The JSON response contains the user profile, not JWTs.
+* `POST /api/v1/auth/refresh`: Reads the refresh cookie, validates it, and rotates the access cookie while preserving the refresh token's original expiry.
+* `POST /api/v1/auth/logout`: Requires cookie-auth CSRF validation, revokes tokens by incrementing `users.token_version`, and clears auth cookies.
+* `GET /api/v1/auth/me`: Validates the access cookie (or bearer token for API clients) and returns the current account and role data from the database.
 
 ### 2. Question Bank & Quiz Authoring (FACULTY / ADMIN)
-All endpoints require a bearer access JWT. Faculty users need an active faculty assignment for the subject; admin access is restricted to the token's college. List endpoints accept `limit` (1-500, default 100) and `offset` (default 0).
+All endpoints require authentication by access cookie or bearer token. Faculty users need an active faculty assignment for the subject; admin access is restricted to the token's college. List endpoints accept `limit` (1-500, default 100) and `offset` (default 0).
 * `GET|POST /api/v1/questions`: List questions (optionally filtered by `subject_id`) or create an MCQ, TRUE_FALSE, or MULTIPLE_SELECT question with its options. Creation validates option order and correct-answer cardinality, then writes the question and options atomically. The authenticated user is recorded as author.
 * `GET|PATCH|DELETE /api/v1/questions/{question_id}`: Read, update, or deactivate an accessible question. `DELETE` is a soft deactivation. Faculty can edit only their own questions; admins can edit any question in their college. A question attached to a published or archived quiz cannot be changed or deactivated.
 * `PUT /api/v1/questions/{question_id}/options`: Atomically replace the full option set on an editable question. Correctness is accepted in the request but is never included in the response; the caller must retain its authoring input if it needs to display the marked answer during the current editing flow.
@@ -630,7 +618,7 @@ All endpoints require a bearer access JWT. Faculty users need an active faculty 
 * `PUT /api/v1/quizzes/{quiz_id}/questions`: Atomically replace the draft quiz's ordered question set. Every question must be active, belong to the same college and subject, and have a unique order. `marks_override`, `negative_marking_enabled_override`, and `negative_penalty_override` preserve `NULL` inheritance and explicit zero penalties. `total_marks` remains database-computed at publishing in Phase 5.
 
 ### 3. Institutional Administration (College ADMIN)
-All endpoints below require an ADMIN bearer access token and are restricted to the token's college. List endpoints accept `limit` (1-500, default 100) and `offset` (default 0).
+All endpoints below require an ADMIN role and are restricted to the token's college. Authentication uses the access cookie or a bearer token. List endpoints accept `limit` (1-500, default 100) and `offset` (default 0).
 * `GET /api/v1/admin/college` and `PATCH /api/v1/admin/college`: Read or update the authenticated administrator's own college. College creation and deletion require a future platform-admin provisioning design.
 * `GET|POST /api/v1/admin/academic/{resource}` and `GET|PATCH|DELETE /api/v1/admin/academic/{resource}/{id}`: CRUD for `academic-years`, `departments`, `branches`, `classes`, `subjects`, `faculty-assignments`, and `enrollments`. Enrollment and assignment deletion deactivates the record to preserve history; foreign-key or uniqueness conflicts return 409.
 * `GET|POST /api/v1/admin/faculty` and `GET|PATCH|DELETE /api/v1/admin/faculty/{user_id}`: Provision and manage faculty accounts and profiles. Create requests require an initial password (12-128 characters), which is Argon2-hashed; account, role, and profile creation is one transaction.
@@ -643,18 +631,22 @@ All endpoints below require an ADMIN bearer access token and are restricted to t
 
 ### 5. Sessions (Faculty / Admin)
 * `POST /api/v1/sessions`: Schedule quiz session.
-* `POST /api/v1/sessions/{session_id}/activate`: Calls `sp_activate_quiz_session`.
-* `POST /api/v1/sessions/{session_id}/pause`: Calls `sp_pause_quiz_session`.
-* `POST /api/v1/sessions/{session_id}/resume`: Calls `sp_resume_quiz_session`.
-* `POST /api/v1/sessions/{session_id}/complete`: Calls `sp_complete_quiz_session`.
+* `GET /api/v1/sessions` and `GET /api/v1/sessions/{session_id}`: List and read sessions owned by the faculty member, or all sessions in an admin's college.
+* `POST /api/v1/sessions/{session_id}/activate|pause|resume|complete|cancel`: Calls the corresponding session lifecycle procedure.
 * `POST /api/v1/sessions/{session_id}/release-results`: Calls `sp_release_session_results`.
+* `GET /api/v1/sessions/{session_id}/analytics`: Returns tenant-scoped participation, scores, and question performance to the owning faculty member or college admin.
 
 ### 6. Quiz Taking (Student)
-* `POST /api/v1/sessions/{session_id}/start`: Calls `sp_start_quiz_attempt`. Returns attempt metadata and sanitized questions.
+* `GET /api/v1/student/sessions`: Lists currently active sessions for the student's enrolled classes.
+* `POST /api/v1/student/sessions/join`: Looks up an active session code and verifies enrollment before returning the safe lobby details.
+* `POST /api/v1/attempts/sessions/{session_id}/start`: Calls `sp_start_quiz_attempt`. Returns attempt metadata and sanitized questions.
+* `GET /api/v1/attempts/{attempt_id}`: Reads the student's own attempt and autosaved response state without evaluation fields.
 * `PUT /api/v1/attempts/{attempt_id}/responses/{question_id}`: Calls `sp_save_student_response`.
   * **Payload**: `{"selected_option_ids": ["uuid..."], "is_marked_for_review": false, "client_version": 2}`
-* `POST /api/v1/attempts/{attempt_id}/submit`: Calls `sp_finalize_attempt` with `submission_type = 'MANUAL'`.
-* `GET /api/v1/attempts/{attempt_id}/results`: Calls `sp_get_student_attempt_results`.
+* `POST /api/v1/attempts/{attempt_id}/submit`: Calls `sp_finalize_attempt` with `MANUAL` or `AUTO_TIME_EXPIRED`. Students can finalize only their own attempt; the API verifies expiry against database time before auto-finalization.
+
+### 7. Results (Student / Faculty / Admin)
+* `GET /api/v1/attempts/{attempt_id}/results`: Calls `sp_get_student_attempt_results`; students receive no score or breakdown until the configured release rule permits it. The owning faculty member and same-college admin may view authorized results.
 
 ---
 
@@ -761,13 +753,16 @@ All database integration tests execute in an isolated transaction that unconditi
 ### Executing the Test Suites Locally
 
 ```bash
-# 1. Run the local Python unit test suite (59 tests)
-.\.venv\Scripts\python.exe -m pytest database\test_verify_and_migrate.py -v
+# 1. Run the migration-runner unit tests
+.\.venv\Scripts\python.exe -m unittest discover -s database -p test_verify_and_migrate.py -v
 
-# 2. Run the SQL verification suite against Neon (Read-Only Transactional)
+# 2. Run the backend unit tests
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+
+# 3. Run the SQL verification suite against Neon (Read-Only Transactional)
 python database/verify_and_migrate.py --tests-only
 
-# 3. Check migration tracking status on Neon
+# 4. Check migration tracking status on Neon
 python database/verify_and_migrate.py --status
 ```
 
@@ -870,20 +865,20 @@ Project Roadmap: Master Implementation Sequence
   * Objective: Question creation (MCQ, True/False, Multiple Select), option authoring, quiz assembly, marks override configuration. `[IMPLEMENTED; LIVE DB VERIFICATION PENDING]`
 * **`PHASE 5: Publishing & Session Lifecycle Engine` `[IMPLEMENTED; LIVE DB VERIFICATION PENDING]`**:
   * Objective: `POST /api/v1/quizzes/{quiz_id}/publish`, scheduled session creation/listing, and session controls calling `sp_activate/pause/resume/complete/cancel`. API session responses omit the answer-bearing activation snapshot.
-* **`PHASE 6: Student Quiz Discovery & Lobby`**:
-  * Objective: Student dashboard listing active sessions, access code entry, prerequisite eligibility verification.
-* **`PHASE 7: Quiz Attempt Engine & Autosave Dispatcher`**:
-  * Objective: Endpoints calling `sp_start_quiz_attempt` and `sp_save_student_response` with debounced client sync.
-* **`PHASE 8: Submission, Finalization & Scoring`**:
-  * Objective: Endpoints for `sp_finalize_attempt` (`MANUAL` and `AUTO_TIME_EXPIRED`), client submission modals.
-* **`PHASE 9: Result Visibility & Analytics`**:
-  * Objective: Endpoints calling `sp_get_student_attempt_results`, student question-by-question breakdown, faculty class analytics.
-* **`PHASE 10: Frontend UI Development & Integration`**:
-  * Objective: Next.js / React application connecting all user personas to the verified backend APIs.
-* **`PHASE 11: End-to-End, Load & Concurrency Testing`**:
-  * Objective: Locust / k6 concurrency tests simulating 500 simultaneous students autosaving and submitting.
-* **`PHASE 12: Production Deployment & Staging Handover`**:
-  * Objective: Production domain configuration, environment separation, backup validation, institutional onboarding.
+* **`PHASE 6: Student Quiz Discovery & Lobby` `[IMPLEMENTED; LIVE DB VERIFICATION PENDING]`**:
+  * Objective: Tenant- and enrollment-scoped active session listing and session-code lookup.
+* **`PHASE 7: Quiz Attempt Engine & Autosave Dispatcher` `[IMPLEMENTED; LIVE DB VERIFICATION PENDING]`**:
+  * Objective: Idempotent attempt start, sanitized snapshot questions, own-attempt state reads, and version-gated autosave through stored procedures.
+* **`PHASE 8: Submission, Finalization & Scoring` `[IMPLEMENTED; LIVE DB VERIFICATION PENDING]`**:
+  * Objective: Manual and database-deadline-checked auto-finalization through `sp_finalize_attempt`.
+* **`PHASE 9: Result Visibility & Analytics` `[IMPLEMENTED; LIVE DB VERIFICATION PENDING]`**:
+  * Objective: Database-enforced student result release, authorized faculty/admin results, and session participation/score/question analytics.
+* **`PHASE 10: Frontend UI Development & Integration` `[IMPLEMENTED; BUILD VERIFIED]`**:
+  * Objective: React/Vite application for student, faculty, and administrator workflows. Live API/browser integration remains pending.
+* **`PHASE 11: End-to-End, Load & Concurrency Testing` `[CI IMPLEMENTED; STAGING TESTS PENDING]`**:
+  * Objective: CI runs backend and frontend checks. Browser end-to-end and high-concurrency autosave/submission tests require a separately provisioned staging database and disposable student accounts; do not run against production.
+* **`PHASE 12: Production Deployment & Staging Handover` `[GUIDE PREPARED; DEPLOYMENT PENDING]`**:
+  * Objective: Follow `docs/DEPLOYMENT.md` to configure environment separation, validate backups/restores, and perform authorized staging acceptance before production promotion.
 
 ---
 
@@ -936,12 +931,12 @@ Follow this checklist sequentially to start working on CampusQuiz:
 
 - [ ] **Step 1: Environment Setup**: Clone repo, create Python virtual environment, install `requirements.txt`.
 - [ ] **Step 2: Database Connectivity**: Configure `.env` with unpooled Neon endpoint and verify connection with `python database/verify_and_migrate.py --status`.
-- [ ] **Step 3: Run Baseline Tests**: Execute `.\.venv\Scripts\python.exe -m pytest database\test_verify_and_migrate.py -v` (Confirm 59/59 passing).
+- [ ] **Step 3: Run Baseline Tests**: Execute the migration-runner and backend `unittest` commands above.
 - [ ] **Step 4: Run SQL Verification**: Execute `python database/verify_and_migrate.py --tests-only` (Confirm 35/35 notices and 9/9 permissions passing).
 - [ ] **Step 5: Review Architecture**: Read this document thoroughly, specifically Sections 6 (Stored Procedures), 7 (Security), and 8 (Scoring).
 - [ ] **Step 6: Pick Roadmap Task**: Select the next assigned task from **Phase 3 (Institutional Administration API)**.
 - [ ] **Step 7: Create Feature Branch**: Branch off `main` using `git checkout -b feat/your-feature-name`.
-- [ ] **Step 8: Implement with Tests**: Write code with accompanying pytest unit tests.
+- [ ] **Step 8: Implement with Tests**: Write code with accompanying unit tests.
 - [ ] **Step 9: PR Submission**: Open a Pull Request into `main` with detailed verification steps.
 
 ---

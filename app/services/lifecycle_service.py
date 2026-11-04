@@ -14,6 +14,7 @@ from app.core.hmac_tickets import create_actor_ticket
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.lifecycle import QuizSessionCreate
 from app.services import authoring_service
+from app.services.procedure_errors import translate_procedure_error
 
 _SESSION_SELECT = """
     SELECT id, college_id, quiz_id, faculty_user_id, class_id, session_code,
@@ -42,25 +43,6 @@ def _not_found() -> HTTPException:
     return HTTPException(status_code=404, detail="Quiz or session not found")
 
 
-def _procedure_http_error(exc: DBAPIError) -> HTTPException | None:
-    original = exc.orig
-    sqlstate = getattr(original, "sqlstate", None) or getattr(original, "pgcode", None)
-    if sqlstate != "P0001":
-        return None
-
-    message = str(original).lower()
-    if "unauthorized" in message or "authorization failed" in message:
-        return HTTPException(status_code=403, detail="Not authorized to perform this operation")
-    if "does not exist" in message or "not found" in message:
-        return _not_found()
-    if "authentication failed" in message:
-        return HTTPException(status_code=401, detail="Actor authentication is no longer valid")
-    return HTTPException(
-        status_code=409,
-        detail="The operation is not valid for the current quiz or session state",
-    )
-
-
 async def _commit_mutation(
     connection: AsyncConnection,
     operation: Callable[[], Awaitable[Result]],
@@ -77,7 +59,7 @@ async def _commit_mutation(
         ) from exc
     except DBAPIError as exc:
         await connection.rollback()
-        translated = _procedure_http_error(exc)
+        translated = translate_procedure_error(exc)
         if translated is not None:
             raise translated from exc
         raise
@@ -349,6 +331,40 @@ async def transition_session(
     async def operation() -> Mapping[str, Any]:
         await connection.execute(
             text(f"SELECT {procedure}(:session_id, :actor_id, :auth_signature)"),
+            {
+                "session_id": session_id,
+                "actor_id": actor.id,
+                "auth_signature": signature,
+            },
+        )
+        return await _get_session(connection, actor, session_id)
+
+    return await _commit_mutation(connection, operation)
+
+
+async def release_session_results(
+    connection: AsyncConnection,
+    actor: AuthenticatedUser,
+    session_id: UUID,
+    settings: Settings,
+) -> Mapping[str, Any]:
+    await _get_session(connection, actor, session_id)
+    signature = create_actor_ticket(
+        user_id=str(actor.id),
+        token_version=actor.token_version,
+        role="ANY",
+        settings=settings,
+    )
+
+    async def operation() -> Mapping[str, Any]:
+        await connection.execute(
+            text(
+                """
+                SELECT sp_release_session_results(
+                    :session_id, :actor_id, :auth_signature
+                )
+                """
+            ),
             {
                 "session_id": session_id,
                 "actor_id": actor.id,

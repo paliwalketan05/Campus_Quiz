@@ -77,6 +77,24 @@ async def read_session(
 
 
 @router.post(
+    "/sessions/{session_id}/release-results",
+    response_model=QuizSessionRead,
+)
+async def release_session_results(
+    session_id: UUID,
+    connection: DatabaseConnection,
+    actor: Actor,
+    settings: ApplicationSettings,
+) -> Mapping[str, Any]:
+    return await lifecycle_service.release_session_results(
+        connection,
+        actor,
+        session_id,
+        settings,
+    )
+
+
+@router.post(
     "/sessions/{session_id}/{action}",
     response_model=QuizSessionRead,
 )

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
@@ -20,6 +22,10 @@ class Settings(BaseSettings):
     auth_hmac_secret: SecretStr
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
+    cors_allowed_origins: str = "http://localhost:5173"
+    auth_cookie_secure: bool = True
+    auth_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    auth_cookie_domain: str | None = None
 
     @model_validator(mode="after")
     def validate_auth_settings(self) -> Self:
@@ -35,7 +41,16 @@ class Settings(BaseSettings):
             raise ValueError("ACCESS_TOKEN_EXPIRE_MINUTES must be positive")
         if self.refresh_token_expire_days < 1:
             raise ValueError("REFRESH_TOKEN_EXPIRE_DAYS must be positive")
+        if self.auth_cookie_samesite == "none" and not self.auth_cookie_secure:
+            raise ValueError("AUTH_COOKIE_SECURE must be true when SameSite is none")
+        origins = [origin.strip() for origin in self.cors_allowed_origins.split(",")]
+        if not origins or any(not origin or origin == "*" for origin in origins):
+            raise ValueError("CORS_ALLOWED_ORIGINS must contain explicit origins")
         return self
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_allowed_origins.split(",")]
 
     @field_validator("app_database_url")
     @classmethod

@@ -104,6 +104,7 @@ class LifecycleSchemaTests(unittest.TestCase):
             "/api/v1/quizzes/{quiz_id}/publish",
             "/api/v1/sessions",
             "/api/v1/sessions/{session_id}",
+            "/api/v1/sessions/{session_id}/release-results",
             "/api/v1/sessions/{session_id}/{action}",
         }
         self.assertTrue(expected_paths <= openapi["paths"].keys())
@@ -212,6 +213,29 @@ class LifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(updated["status"], "ACTIVE")
         self.assertNotIn("snapshot_json", updated)
         self.assertNotIn("is_correct", updated)
+        self.connection.commit.assert_awaited_once()
+
+    @patch("app.services.lifecycle_service.create_actor_ticket", return_value="ticket")
+    async def test_release_results_uses_authorized_procedure(
+        self,
+        _ticket: MagicMock,
+    ) -> None:
+        self.connection.execute.side_effect = [
+            make_result(row=session_row(status="COMPLETED")),
+            make_result(scalar=NOW),
+            make_result(row={**session_row(status="COMPLETED"), "results_released_at": NOW}),
+        ]
+
+        updated = await lifecycle_service.release_session_results(
+            self.connection,
+            self.actor,
+            SESSION_ID,
+            self.settings,
+        )
+
+        statement = str(self.connection.execute.await_args_list[1].args[0])
+        self.assertIn("sp_release_session_results", statement)
+        self.assertEqual(updated["results_released_at"], NOW)
         self.connection.commit.assert_awaited_once()
 
     @patch("app.services.lifecycle_service.authoring_service.get_quiz", new_callable=AsyncMock)

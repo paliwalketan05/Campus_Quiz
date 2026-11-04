@@ -30,7 +30,7 @@ class LoginRequest(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: SecretStr
+    refresh_token: SecretStr | None = None
 
 
 class UserProfile(BaseModel):
@@ -53,4 +53,10 @@ class TokenResponse(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     expires_in: int
+    user: UserProfile
+
+
+class AuthSessionResponse(BaseModel):
+    expires_in: int
+    csrf_token: str
     user: UserProfile

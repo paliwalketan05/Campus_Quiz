@@ -9,6 +9,7 @@
 | Document | Description |
 | :--- | :--- |
 | 📘 **[Architecture & Developer Handoff](docs/ARCHITECTURE_AND_DEVELOPER_HANDOFF.md)** | **Definitive technical guide** — complete database ERD, stored procedures directory, HMAC authentication, scoring formulas, API contract roadmap, and onboarding checklist. |
+| 🚀 **[Staging Deployment Handover](docs/DEPLOYMENT.md)** | Environment, cookie/CORS, staging acceptance, and backup-restore checklist; no live deployment is claimed. |
 | 📋 **[Milestone & Accomplishments Summary](ACCOMPLISHMENTS.md)** | Executive summary of Phase 0 database completion, security audits, and verification test reports. |
 
 ---
@@ -19,15 +20,16 @@
   * 6 sequential migrations applied to Neon Serverless PostgreSQL 18.6 (`campusquiz_db`).
   * 35 integration assertions (`TEST-01A` through `TEST-14B`) passing inside transactional rollback.
   * 9/9 restricted application role (`campusquiz_app`) least-privilege checks passing.
-  * 59/59 Python unit tests passing under `pytest`.
+  * 35 database integration assertions and 78 migration-runner unit tests.
 * **Phase 1 — Backend Foundation Scaffold**: **`IMPLEMENTED`** (FastAPI, Pydantic v2, async SQLAlchemy, health checks, and restricted-role connection setup).
 * **Phase 2 — Authentication & Identity Service**: **`IMPLEMENTED; LIVE DB VERIFICATION PENDING`** (Argon2 login, scoped access/refresh JWTs, token-version checks, logout revocation, and database HMAC tickets).
 * **Phase 3 — Institutional Administration API**: **`IMPLEMENTED; LIVE DB VERIFICATION PENDING`** (tenant-scoped academic CRUD, faculty/student provisioning, assignments, and enrollments).
 * **Phase 4 — Question Bank & Quiz Authoring API**: **`IMPLEMENTED; LIVE DB VERIFICATION PENDING`** (role/subject-scoped questions and options, draft quizzes, ordered question assembly, and scoring overrides).
 * **Phase 5 — Publishing & Session Lifecycle API**: **`IMPLEMENTED; LIVE DB VERIFICATION PENDING`** (quiz publishing, scheduled sessions, and stored-procedure-backed lifecycle controls).
-* **Phases 6–9 — Backend APIs**: **`PLANNED`** (student discovery, attempts, submission, and results).
-* **Phase 10 — Frontend Application**: **`PLANNED`** (Next.js / React interactive quiz engine).
-* **Phases 11–12 — Testing & Deployment**: **`PLANNED`**.
+* **Phases 6–9 — Student Execution & Results APIs**: **`IMPLEMENTED; LIVE DB VERIFICATION PENDING`** (eligible session discovery, procedure-backed attempts/autosave/finalization, visibility-gated results, and faculty analytics).
+* **Phase 10 — Frontend Application**: **`IMPLEMENTED; BUILD VERIFIED`** (React/Vite student, faculty, and administrator workflows; live API/browser integration pending).
+* **Phase 11 — Testing & CI**: **`CI IMPLEMENTED; STAGING E2E/LOAD PENDING`** (automated backend and frontend checks; live concurrency testing requires disposable staging data/accounts).
+* **Phase 12 — Deployment & Handover**: **`STAGING GUIDE PREPARED; DEPLOYMENT PENDING`** (provider provisioning, backups, restore rehearsal, and live staging verification are not available in this workspace).
 
 ---
 
@@ -56,7 +58,7 @@ The PostgreSQL 15+ database migrations are located in [`database/`](database/):
 | **[`campusquiz_complete.sql`](database/campusquiz_complete.sql)** | Master DDL | Consolidated 3,300+ line master script synchronizing all 6 migrations in sequence for fresh database environments. |
 | **[`verify_and_migrate.py`](database/verify_and_migrate.py)** | Runner | Automated deployment runner supporting `--migrate`, `--tests-only`, `--status`, and `--mark-applied`. |
 | **[`test_suite.sql`](database/test_suite.sql)** | Test Suite | 35-check transactional integration test file executed under single-transaction rollback. |
-| **[`test_verify_and_migrate.py`](database/test_verify_and_migrate.py)** | Unit Tests | 59 unit tests verifying CLI arguments, HMAC generation, migration catalogue, permission simulations, and SQL integrity. |
+| **[`test_verify_and_migrate.py`](database/test_verify_and_migrate.py)** | Unit Tests | 78 tests verifying CLI arguments, HMAC generation, migration catalogue, permission simulations, and SQL integrity. |
 | **[`auth_utils.py`](database/auth_utils.py)** | Utility | Python HMAC-SHA256 signature generator mirroring PostgreSQL `fn_verify_actor_context`. |
 
 ---
@@ -91,11 +93,26 @@ Configure `.env` using `.env.example`; `APP_DATABASE_URL` must use a direct Post
 python -m uvicorn app.main:app --reload
 ```
 
-The liveness endpoint is `GET /health/live`; `GET /health/ready` also checks the database connection. Phase 3 administration endpoints are under `/api/v1/admin` and require an `ADMIN` access token. Each operation is scoped to the college in the authenticated token; college provisioning is deferred until a platform-administrator role is designed. Phase 4 question and quiz authoring endpoints require a `FACULTY` or `ADMIN` token; faculty access is limited to subjects with an active faculty assignment. Phase 5 adds `POST /api/v1/quizzes/{quiz_id}/publish`, session scheduling and listing under `/api/v1/sessions`, and activate/pause/resume/complete/cancel controls. Session lifecycle mutations call the authorized database procedures; the activation snapshot is never returned by the API. Live Neon verification remains pending. Run the backend tests with:
+The liveness endpoint is `GET /health/live`; `GET /health/ready` also checks the database connection. Phase 3 administration endpoints are under `/api/v1/admin` and require an `ADMIN` access token. Each operation is scoped to the college in the authenticated token; college provisioning is deferred until a platform-administrator role is designed. Phase 4 question and quiz authoring endpoints require a `FACULTY` or `ADMIN` token; faculty access is limited to subjects with an active faculty assignment. Phase 5 adds quiz publishing and scheduled sessions under `/api/v1/sessions`; lifecycle state changes call the authorized database procedures, and answer-bearing snapshots are never returned. Phases 6–9 add student session discovery/join, attempt start and autosave, submission, visibility-gated results, and faculty analytics. Live Neon verification remains pending. Run the backend tests with:
 
 ```powershell
 python -m unittest discover -s tests -v
 ```
+
+### Frontend
+
+With the backend running, start the React/Vite app in a second terminal:
+
+```powershell
+cd frontend
+Copy-Item .env.example .env.local
+npm ci
+npm run dev
+```
+
+Configure `VITE_API_BASE_URL` in `frontend/.env.local` if the API is not at
+`http://localhost:8000/api/v1`. See [`frontend/README.md`](frontend/README.md)
+and the [staging deployment handover](docs/DEPLOYMENT.md).
 
 ### 3. Environment Configuration
 Copy the template and populate your local credentials:
@@ -119,13 +136,16 @@ REFRESH_TOKEN_EXPIRE_DAYS=7
 The backend requires both `AUTH_HMAC_SECRET` and `JWT_SECRET_KEY` from `.env.example`. Set the HMAC value to the same secret configured in `app_auth_config`; use a separate random JWT key (at least 32 bytes). Refresh tokens keep their original expiry, and logout invalidates all tokens for that user by incrementing `token_version`.
 
 ```powershell
-# 1. Run the local Python unit test suite (59 tests)
-.\.venv\Scripts\python.exe -m pytest database\test_verify_and_migrate.py -v
+# 1. Run the local migration-runner tests (78 tests)
+.\.venv\Scripts\python.exe -m unittest discover -s database -p test_verify_and_migrate.py -v
 
-# 2. Run the SQL verification suite against Neon (Read-Only Transactional Rollback)
+# 2. Run the backend unit tests
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+
+# 3. Run the SQL verification suite against Neon (Read-Only Transactional Rollback)
 python database/verify_and_migrate.py --tests-only
 
-# 3. Check migration status on Neon
+# 4. Check migration status on Neon
 python database/verify_and_migrate.py --status
 ```
 
@@ -180,7 +200,7 @@ Quiz/
     ├── auth_utils.py                          # HMAC-SHA256 signature generator
     ├── campusquiz_complete.sql                # Consolidated master SQL file
     ├── test_suite.sql                         # 35-assertion integration test suite
-    ├── test_verify_and_migrate.py             # 59-test Python pytest suite
+    ├── test_verify_and_migrate.py             # Migration-runner unit tests
     └── verify_and_migrate.py                  # Migration & verification CLI runner
 ```
 
